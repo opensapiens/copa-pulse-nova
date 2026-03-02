@@ -11,7 +11,12 @@ from src.inference import BedrockGuesser
 from src.geocode import GeocoderCache
 from src.db import get_db_connection
 
+from cachetools import cached, TTLCache
+
 app = FastAPI(title="CopaPulse API")
+
+# Setup 5 minute TTL cache to mimic Streamlit's @st.cache_data behavior
+data_cache = TTLCache(maxsize=1, ttl=300)
 
 # Add CORS middleware to allow React frontend to connect
 app.add_middleware(
@@ -22,6 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@cached(data_cache)
 def fetch_and_process_data() -> List[Dict[str, Any]]:
     # We use the same business logic from app.py but adapt it to return JSON
     raw_items = asyncio.run(aggregate_feeds())
@@ -126,5 +132,14 @@ def fetch_and_process_data() -> List[Dict[str, Any]]:
 
 @app.get("/api/data")
 def get_map_data():
-    data = fetch_and_process_data()
-    return {"status": "success", "data": data}
+    try:
+        data = fetch_and_process_data()
+        return {"status": "success", "data": data}
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/")
+@app.get("/api")
+def health_check():
+    return {"status": "alive", "message": "CopaPulse API is running. Use /api/data for the map data."}

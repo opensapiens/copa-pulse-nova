@@ -140,6 +140,7 @@ class BedrockGuesser:
                     INSERT INTO inference_cache 
                     (id, title, body, inferred_location, confidence_score, reasoning, sentiment, nationalities, summary) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (id) DO NOTHING
                 """, [
                     item_id, item.get("title", ""), item.get("body", ""),
                     result.get("inferred_location", ""), 
@@ -243,6 +244,7 @@ class BedrockGuesser:
                     INSERT INTO city_summary_cache 
                     (id, location, item_ids_hash, summary, sentiment, key_events) 
                     VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (id) DO NOTHING
                 """, [
                     cache_id, location, item_ids_hash, 
                     result.get("summary", ""), 

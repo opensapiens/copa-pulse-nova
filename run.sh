@@ -12,7 +12,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "Starting CopaPulse FastAPI Backend (Port 8000)..."
-uvicorn api:app --reload --port 8000 &
+python -m uvicorn api:app --reload --port 8000 &
 
 echo "Starting CopaPulse React Frontend (Port 5173)..."
 cd frontend && npm run dev &
