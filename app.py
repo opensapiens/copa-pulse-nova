@@ -107,7 +107,8 @@ def fetch_and_process_data():
                 "weight": cached_item[3],
                 "title": cached_item[4],
                 "summary": cached_item[5],
-                "sentiment": cached_item[6]
+                "sentiment": cached_item[6],
+                "id": item['id']
             })
             continue
 
@@ -150,10 +151,45 @@ def fetch_and_process_data():
                 "weight": weight,
                 "title": item['title'],
                 "summary": summary,
-                "sentiment": sentiment
+                "sentiment": sentiment,
+                "id": item['id']
             })
 
-    return pd.DataFrame(processed_data)
+    # Group items by location for city-level summaries
+    grouped_data = {}
+    for pd_item in processed_data:
+        loc = pd_item["location"]
+        if loc not in grouped_data:
+            grouped_data[loc] = []
+        grouped_data[loc].append(pd_item)
+
+    city_summaries = []
+    for loc, items in grouped_data.items():
+        # Get city-level summary
+        city_stats = guesser.summarize_city(loc, items)
+        
+        # Calculate aggregated position and weight
+        avg_lat = sum(i["lat"] for i in items) / len(items)
+        avg_lon = sum(i["lon"] for i in items) / len(items)
+        total_weight = sum(i["weight"] for i in items)
+        
+        # Format key events into HTML bullet points for tooltip
+        key_events_html = "".join([f"<li>{event}</li>" for event in city_stats.get("key_events", [])])
+        if key_events_html:
+            key_events_html = f"<ul style='margin-top: 4px; margin-bottom: 0px; padding-left: 20px;'>{key_events_html}</ul>"
+            
+        city_summaries.append({
+            "lat": avg_lat,
+            "lon": avg_lon,
+            "location": loc,
+            "weight": total_weight,
+            "summary": city_stats.get("summary", "No summary available."),
+            "sentiment": city_stats.get("sentiment", "neutral"),
+            "key_events_html": key_events_html,
+            "key_events": city_stats.get("key_events", [])
+        })
+
+    return pd.DataFrame(city_summaries)
 
 # ---------------------------------------------------------
 # UI RENDERING
@@ -202,11 +238,12 @@ scatter_layer = pdk.Layer(
 
 tooltip = {
     "html": "<b>📍 {location}</b><br/>"
-            "<i>{title}</i><br/>"
+            "<i>City Summary Insight</i><br/>"
             "<hr style='margin: 4px; border-color: rgba(255,255,255,0.2);'>"
             "<b>Sentiment:</b> {sentiment}<br/>"
-            "<b>Summary:</b> {summary}<br/>"
-            "<b>Confidence:</b> {weight}",
+            "<b>Overview:</b> {summary}<br/>"
+            "<b>Key Events:</b> {key_events_html}<br/>"
+            "<b>Activity Level:</b> {weight}",
     "style": {
         "backgroundColor": "rgba(30, 41, 59, 0.9)", 
         "color": "white",
@@ -236,9 +273,21 @@ hottest_spot_row = df.loc[df['weight'].idxmax()] if not df.empty else None
 
 with st.expander("🔥 Live Summary (Swipe Up)", expanded=True):
     if hottest_spot_row is not None:
-        st.subheader(f"📍 Hottest Spot: {hottest_spot_row['location']}")
-        st.write(f"📝 **Event:** {hottest_spot_row['title']}")
-        st.write(f"ℹ️ **Summary:** {hottest_spot_row['summary']}")
+        st.subheader(f"📍 Hottest City: {hottest_spot_row['location']}")
+        st.write(f"ℹ️ **Overview:** {hottest_spot_row['summary']}")
+        
+        if hottest_spot_row['key_events']:
+            events = hottest_spot_row['key_events']
+            if isinstance(events, str):
+                import json
+                try:
+                    events = json.loads(events)
+                except:
+                    events = []
+            if isinstance(events, list) and len(events) > 0:
+                st.write("**Key Events:**")
+                for event in events:
+                    st.write(f"- {event}")
         
         sentiment = hottest_spot_row['sentiment']
         emoji = "🤩" if sentiment == "positive" else "😐" if sentiment == "neutral" else "😡"

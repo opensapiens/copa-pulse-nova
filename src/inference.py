@@ -37,6 +37,26 @@ Author Location: {author_location}
 Timestamp: {timestamp}
 """
 
+CITY_SUMMARY_PROMPT = """
+You are analyzing a batch of news articles and posts for the city of {location}. Your goal is to provide an overarching, combined view of the current vibe and key events happening in this city.
+
+Read through the following news items carefully:
+{news_items_text}
+
+Return a single JSON block with the following info:
+{{
+    "sentiment": "positive", // Must be one of: "positive", "neutral", "negative", "mixed"
+    "summary": "A concise overview (1-2 sentences) showing what people are talking about or feeling in this city.",
+    "key_events": [
+        "Event 1 brief description",
+        "Event 2 brief description",
+        "Event 3 brief description (Aim for 3-5 major distinct events)"
+    ]
+}}
+
+Ensure the output is STRICTLY a valid JSON object. Do not include markdown formatting or backticks around the JSON.
+"""
+
 class BedrockGuesser:
     def __init__(self):
         # Configure the boto3 client for Bedrock Runtime
@@ -138,6 +158,109 @@ class BedrockGuesser:
         except Exception as e:
             print(f"Error inferring location for {item_id}: {e}")
             return None
+
+    def summarize_city(self, location, items):
+        """
+        Takes a location string and a list of feed items for that location, 
+        and uses the LLM to generate an overall summary, sentiment, and 3-5 key events.
+        """
+        import hashlib
+        
+        # Sort items by id for deterministic hash
+        sorted_items = sorted(items, key=lambda x: x.get('id', ''))
+        item_ids = [str(x.get('id')) for x in sorted_items]
+        item_ids_str = ",".join(item_ids)
+        item_ids_hash = hashlib.md5(item_ids_str.encode('utf-8')).hexdigest()
+        cache_id = f"{location}_{item_ids_hash}"
+        
+        # Check cache
+        try:
+            conn = get_db_connection()
+            cached = conn.execute(
+                "SELECT summary, sentiment, key_events FROM city_summary_cache WHERE id = ?", 
+                [cache_id]
+            ).fetchone()
+            if cached:
+                return {
+                    "summary": cached[0],
+                    "sentiment": cached[1],
+                    "key_events": json.loads(cached[2]) if cached[2] else []
+                }
+        except Exception as e:
+            print(f"Warning: Failed to read from city_summary_cache: {e}")
+
+        # Build prompt
+        news_items_text = ""
+        for i, item in enumerate(sorted_items):
+            news_items_text += f"---\nItem {i+1}:\nTitle: {item.get('title', '')}\nSummary: {item.get('summary', '')}\nSentiment: {item.get('sentiment', 'neutral')}\n\n"
+
+        prompt = CITY_SUMMARY_PROMPT.format(
+            location=location,
+            news_items_text=news_items_text
+        )
+        
+        body = json.dumps({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"text": prompt}]
+                }
+            ],
+            "system": [
+                {
+                    "text": "You are a highly capable news aggregator and data analyst."
+                }
+            ],
+            "inferenceConfig": {
+                "max_new_tokens": 512,
+                "temperature": 0.2,
+                "top_p": 0.9,
+            }
+        })
+        
+        try:
+            response = self.client.invoke_model(
+                modelId=self.model_id,
+                body=body,
+                accept='application/json',
+                contentType='application/json'
+            )
+            response_body = json.loads(response.get('body').read())
+            
+            output_message = response_body.get('output', {}).get('message', {})
+            content = output_message.get('content', [{}])[0].get('text', '')
+            
+            if '```json' in content:
+                content = content.split('```json')[1].split('```')[0].strip()
+            elif '```' in content:
+                content = content.split('```')[1].split('```')[0].strip()
+            
+            result = json.loads(content)
+            
+            # Write to cache
+            try:
+                conn.execute("""
+                    INSERT INTO city_summary_cache 
+                    (id, location, item_ids_hash, summary, sentiment, key_events) 
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, [
+                    cache_id, location, item_ids_hash, 
+                    result.get("summary", ""), 
+                    result.get("sentiment", "neutral"), 
+                    json.dumps(result.get("key_events", []))
+                ])
+            except Exception as e:
+                print(f"Warning: Failed to write to city_summary_cache: {e}")
+                
+            return result
+            
+        except Exception as e:
+            print(f"Error summarizing city {location}: {e}")
+            return {
+                "summary": "Could not generate summary.",
+                "sentiment": "neutral",
+                "key_events": []
+            }
 
 if __name__ == "__main__":
     # Test script locally

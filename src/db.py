@@ -50,4 +50,17 @@ def get_db_connection():
         )
     """)
     
+    # Create table for cached city summaries
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS city_summary_cache (
+            id VARCHAR PRIMARY KEY,
+            location VARCHAR,
+            item_ids_hash VARCHAR,
+            summary VARCHAR,
+            sentiment VARCHAR,
+            key_events VARCHAR,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
     return conn
