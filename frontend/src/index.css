@@ -1,14 +1,134 @@
 @import "tailwindcss";
 
-@layer base {
-  body {
-    @apply bg-slate-900 text-slate-100 m-0 p-0 font-sans antialiased overflow-hidden;
-  }
+/* ===== Theme tokens ===== */
+:root {
+  --app-bg:       #020617;          /* slate-950 */
+  --glass-bg:     rgba(15,23,42,0.65);
+  --glass-border: rgba(255,255,255,0.07);
+  --glass-shadow: 0 25px 50px -12px rgba(0,0,0,0.8);
 }
 
-/* Custom Scrollbar for Agent Reasoning Panel */
+[data-theme="light"] {
+  --app-bg:       #dde6f0;
+  --glass-bg:     rgba(255,255,255,0.85);
+  --glass-border: rgba(0,0,0,0.09);
+  --glass-shadow: 0 8px 32px rgba(0,0,0,0.12);
+}
+
+@layer base {
+  body {
+    @apply m-0 p-0 antialiased overflow-hidden;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    background-color: var(--app-bg);
+    color: #f1f5f9;
+  }
+
+  [data-theme="light"] body,
+  [data-theme="light"] {
+    color: #0f172a;
+  }
+
+  h1, h2, h3 { letter-spacing: -0.01em; }
+}
+
+@layer utilities {
+  .glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .sports-glow { box-shadow: 0 0 16px rgba(74,222,128,0.15); }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .pt-safe { padding-top: max(env(safe-area-inset-top), 0px); }
+  .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+}
+
+/* ===== Light-mode surface overrides ===== */
+[data-theme="light"] .bg-slate-950    { background-color: #dde6f0 !important; }
+[data-theme="light"] .bg-slate-950\/80 { background-color: rgba(221,230,240,0.96) !important; }
+[data-theme="light"] .bg-slate-950\/90 { background-color: rgba(221,230,240,0.96) !important; }
+
+/* Text */
+[data-theme="light"] .text-white      { color: #0f172a !important; }
+[data-theme="light"] .text-slate-100  { color: #1e293b !important; }
+[data-theme="light"] .text-slate-200  { color: #1e293b !important; }
+[data-theme="light"] .text-slate-400  { color: #334155 !important; }
+[data-theme="light"] .text-slate-500  { color: #475569 !important; }
+[data-theme="light"] .text-slate-600  { color: #64748b !important; }
+
+/* Card inner surfaces */
+[data-theme="light"] .bg-slate-800\/50  { background-color: rgba(203,213,225,0.7) !important; }
+[data-theme="light"] .bg-slate-800\/30  { background-color: rgba(203,213,225,0.4) !important; }
+[data-theme="light"] .bg-slate-700\/30  { background-color: rgba(203,213,225,0.5) !important; }
+[data-theme="light"] .bg-slate-700\/60  { background-color: rgba(186,199,214,0.7) !important; }
+
+/* Borders */
+[data-theme="light"] .border-slate-700\/40  { border-color: rgba(148,163,184,0.4) !important; }
+[data-theme="light"] .border-slate-700\/50  { border-color: rgba(148,163,184,0.5) !important; }
+[data-theme="light"] .border-slate-800       { border-color: rgba(148,163,184,0.5) !important; }
+[data-theme="light"] .border-slate-600\/30   { border-color: rgba(148,163,184,0.3) !important; }
+
+/* AI reasoning box */
+[data-theme="light"] .bg-slate-950\/80 { background-color: rgba(241,245,249,0.95) !important; }
+
+/* Scrollbar */
+[data-theme="light"] ::-webkit-scrollbar-thumb       { background: rgba(0,0,0,0.15); }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.30); }
+
+/* Shimmer — lighter palette in light mode */
+[data-theme="light"] .shimmer-text {
+  background: linear-gradient(90deg, #16a34a 0%, #ca8a04 30%, #0f172a 50%, #ca8a04 70%, #16a34a 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-x 4s linear infinite;
+}
+
+/* Keyframe animations */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-5px); }
+}
+
+@keyframes shimmer-x {
+  from { background-position: 200% center; }
+  to   { background-position: -200% center; }
+}
+
+@keyframes glow-ring {
+  0%, 100% { opacity: 0.5; transform: scale(1);    }
+  50%       { opacity: 1;   transform: scale(1.06); }
+}
+
+@keyframes pop-in {
+  0%   { transform: scale(0.85); opacity: 0; }
+  70%  { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+.animate-float       { animation: float 3.5s ease-in-out infinite; }
+.animate-glow-ring   { animation: glow-ring 2s ease-in-out infinite; }
+.animate-pop-in      { animation: pop-in 0.4s cubic-bezier(0.175,0.885,0.32,1.275) both; }
+
+/* Shimmer text — used on brand title */
+.shimmer-text {
+  background: linear-gradient(90deg, #86efac 0%, #fde047 30%, #ffffff 50%, #fde047 70%, #86efac 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-x 4s linear infinite;
+}
+
+/* Thin custom scrollbar (desktop only) */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -16,10 +136,27 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* Maplibre navigation control dark theme */
+.maplibregl-ctrl-group {
+  background: rgba(15, 23, 42, 0.75) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+}
+
+.maplibregl-ctrl-group button {
+  background: transparent !important;
+}
+
+.maplibregl-ctrl-group button span {
+  filter: invert(1) brightness(0.7);
 }

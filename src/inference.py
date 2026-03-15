@@ -7,25 +7,29 @@ from .db import get_db_connection
 load_dotenv()
 
 PROMPT_TEMPLATE = """
-Analyze the provided news article or post. Your goal is to identify the most specific possible location of the event described.
-You must ONLY extract locations that are within North America (United States, Canada, Mexico). If the event takes place elsewhere (e.g., Europe, South America, Asia, etc.), return "Unknown" for the inferred_location.
+You are a sports event intelligence system for the 2026 FIFA World Cup.
+Your ONLY job is to process articles and posts that are about SPORTS — specifically football/soccer matches, fan reactions, stadium atmosphere, goal celebrations, player performances, team news, fan zones, World Cup fixtures, upsets, red cards, chants, or crowd energy.
 
-Crucially, you should look for mentions of the 16 official 2026 World Cup host cities and gauge the overall event or emotion of the city:
-- USA: Atlanta, Boston, Dallas, Houston, Kansas City, Los Angeles, Miami, New York/New Jersey, Philadelphia, San Francisco Bay Area, Seattle.
-- Mexico: Guadalajara, Mexico City, Monterrey.
-- Canada: Toronto, Vancouver.
+STRICT FILTER RULE: If this article or post is NOT primarily about a sports event or sports-related fan activity, you MUST return "Unknown" for inferred_location and set confidence_score to 0.0. Ignore politics, general news, weather, business, entertainment, or any non-sports content entirely.
 
-Look for North American neighborhood or city names, or landmarks.
-Use metadata (source city) to disambiguate.
+If the article IS sports-related:
+- Identify the most specific location of the sports event or fan activity described.
+- You must ONLY extract locations within North America (United States, Canada, Mexico). If the sports event is physically located elsewhere, return "Unknown".
+- Map to one of the 16 official 2026 World Cup host cities if possible:
+  USA: Atlanta, Boston, Dallas, Houston, Kansas City, Los Angeles, Miami, New York/New Jersey, Philadelphia, San Francisco Bay Area, Seattle.
+  Mexico: Guadalajara, Mexico City, Monterrey.
+  Canada: Toronto, Vancouver.
+- Use stadium names, fan zones, or local landmarks to pinpoint location.
+- Gauge the crowd/fan energy: are fans celebrating, anxious, devastated, or electric?
 
 Return a JSON:
 {{
-    "inferred_location": "Specific Landmark or City, Country",
+    "inferred_location": "Specific Stadium, Fan Zone, or Host City, Country",
     "confidence_score": 0.5,
-    "reasoning": "Mentioned a local festival happening in downtown Toronto",
+    "reasoning": "Article describes fans storming the streets near SoFi Stadium after a last-minute goal",
     "sentiment": "positive/neutral/negative",
-    "nationalities": ["list"],
-    "summary": "Short abstract about what's happening"
+    "nationalities": ["list of nationalities of fans or teams mentioned"],
+    "summary": "One sentence sports-focused summary of the crowd energy or match event"
 }}
 
 Ensure the output is STRICTLY a valid JSON object. Do not include markdown formatting or backticks around the JSON.
@@ -38,22 +42,35 @@ Timestamp: {timestamp}
 """
 
 CITY_SUMMARY_PROMPT = """
-You are analyzing a batch of news articles and posts for the city of {location}. Your goal is to provide an overarching, combined view of the current vibe and key events happening in this city.
+You are a 2026 FIFA World Cup stadium atmosphere analyst.
+You are analyzing a batch of SPORTS-ONLY news articles and fan posts for the host city of {location}.
+Your goal is to capture the current match atmosphere, crowd energy, and key sporting moments happening in this city.
 
-Read through the following news items carefully:
+Focus EXCLUSIVELY on:
+- Match results, goals, upsets, red cards, penalties
+- Fan crowd energy, chants, stadium atmosphere, fan zone reactions
+- Player standout performances or controversies
+- Team news (injuries, lineups, surprises)
+- Any incidents or highlights inside or around the stadium
+
+Ignore any non-sports content entirely.
+
+Read through the following sports items:
 {news_items_text}
 
-Return a single JSON block with the following info:
+Return a single JSON block:
 {{
-    "sentiment": "positive", // Must be one of: "positive", "neutral", "negative", "mixed"
-    "summary": "A concise overview (1-2 sentences) showing what people are talking about or feeling in this city.",
+    "sentiment": "positive",
+    "summary": "A 1-2 sentence punchy sports-focused description of the current atmosphere and fan energy in this city.",
     "key_events": [
-        "Event 1 brief description",
-        "Event 2 brief description",
-        "Event 3 brief description (Aim for 3-5 major distinct events)"
+        "Goal: Mbappe scores in the 89th minute — crowd erupts at SoFi",
+        "Red card controversy sparks heated debate among fans outside the stadium",
+        "Fan zones at downtown LA packed to capacity — massive celebrations"
     ]
 }}
 
+sentiment must be one of: "positive", "neutral", "negative", "mixed".
+key_events should be 3-5 specific, punchy sports moments — not generic statements.
 Ensure the output is STRICTLY a valid JSON object. Do not include markdown formatting or backticks around the JSON.
 """
 
@@ -64,7 +81,8 @@ class BedrockGuesser:
             service_name='bedrock-runtime',
             region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
         )
-        self.model_id = 'amazon.nova-lite-v1:0'
+        # Amazon Nova Lite model ID (use environment variable for flexibility)
+        self.model_id = os.getenv('BEDROCK_MODEL_ID', 'us.amazon.nova-lite-v1:0')
         
     def _create_payload(self, context_text):
         """Creates the payload structure expected by Nova-Lite."""
@@ -77,13 +95,13 @@ class BedrockGuesser:
             ],
             "system": [
                 {
-                    "text": "You are a precise geospatial reasoning AI designed to extract the most specific physical location from a text snippet."
+                    "text": "You are a sports intelligence AI specializing in the 2026 FIFA World Cup. You extract geolocation and crowd energy data exclusively from sports-related content. You must ignore all non-sports content and return Unknown for anything unrelated to football matches, fan activity, or stadium events."
                 }
             ],
             "inferenceConfig": {
-                "max_new_tokens": 512,
-                "temperature": 0.1,  # Keep it deterministic
-                "top_p": 0.9,
+                "maxTokens": 512,
+                "temperature": 0.1,
+                "topP": 0.9,
             }
         }
 
@@ -133,6 +151,12 @@ class BedrockGuesser:
                 content = content.split('```')[1].split('```')[0].strip()
             
             result = json.loads(content)
+
+            # Hard filter: drop non-sports content (confidence 0 or Unknown location)
+            if float(result.get("confidence_score", 0.0)) == 0.0:
+                return None
+            if result.get("inferred_location", "").strip().lower() in ("", "unknown"):
+                return None
             
             # Write to cache
             try:
@@ -209,13 +233,13 @@ class BedrockGuesser:
             ],
             "system": [
                 {
-                    "text": "You are a highly capable news aggregator and data analyst."
+                    "text": "You are a 2026 FIFA World Cup match atmosphere analyst. You synthesize fan posts and sports news into punchy, stadium-grade summaries of crowd energy, match highlights, and key sporting moments. You never discuss non-sports topics."
                 }
             ],
             "inferenceConfig": {
-                "max_new_tokens": 512,
+                "maxTokens": 512,
                 "temperature": 0.2,
-                "top_p": 0.9,
+                "topP": 0.9,
             }
         })
         
