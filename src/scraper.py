@@ -6,6 +6,8 @@ import ssl
 import random
 from datetime import datetime
 from dotenv import load_dotenv
+import praw
+from prawcore import NotFound
 
 load_dotenv()
 
@@ -100,6 +102,60 @@ async def fetch_rss_feed(url):
         })
     return results
 
+async def fetch_reddit_posts():
+    """Fetches Reddit posts about World Cup, soccer, and sports from relevant subreddits."""
+    loop = asyncio.get_event_loop()
+    
+    def _fetch_reddit():
+        try:
+            # Initialize Reddit client (read-only mode, no authentication needed)
+            reddit = praw.Reddit(
+                client_id=os.getenv('REDDIT_CLIENT_ID', 'your_client_id'),
+                client_secret=os.getenv('REDDIT_CLIENT_SECRET', 'your_client_secret'),
+                user_agent='CopaPulse:v1.0 (by /u/yourname)'
+            )
+            
+            # Subreddits focused on soccer/World Cup
+            subreddits = [
+                'worldcup', 'soccer', 'football', 'MLS', 'LigaMX', 
+                'ussoccer', 'CanadaSoccer', 'FutbolMX'
+            ]
+            
+            results = []
+            
+            for subreddit_name in subreddits:
+                try:
+                    subreddit = reddit.subreddit(subreddit_name)
+                    # Get hot posts from the last 24 hours
+                    for post in subreddit.hot(limit=15):
+                        # Skip stickied posts
+                        if post.stickied:
+                            continue
+                            
+                        results.append({
+                            "id": generate_id(f"reddit_{subreddit_name}", post.id),
+                            "source": f"Reddit: r/{subreddit_name}",
+                            "title": post.title,
+                            "body": post.selftext if post.selftext else post.title,
+                            "author_location": "Unknown",  # Reddit doesn't expose user location
+                            "url": f"https://reddit.com{post.permalink}",
+                            "timestamp": datetime.fromtimestamp(post.created_utc).isoformat()
+                        })
+                except NotFound:
+                    print(f"Subreddit r/{subreddit_name} not found, skipping...")
+                except Exception as e:
+                    print(f"Error fetching from r/{subreddit_name}: {e}")
+                    
+            return results
+            
+        except Exception as e:
+            print(f"Reddit API error: {e}")
+            print("Tip: Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET in .env file")
+            print("Get credentials at: https://www.reddit.com/prefs/apps")
+            return []
+    
+    return await loop.run_in_executor(None, _fetch_reddit)
+
 async def fetch_all_rss():
     """Fetches all RSS feeds concurrently."""
     tasks = [fetch_rss_feed(url) for url in RSS_FEEDS]
@@ -108,9 +164,15 @@ async def fetch_all_rss():
 
 async def aggregate_feeds():
     """Entry point to aggregate all data sources."""
-    rss_items = await fetch_all_rss()
+    rss_items, reddit_items = await asyncio.gather(
+        fetch_all_rss(),
+        fetch_reddit_posts()
+    )
     mock_items = generate_mock_world_cup_data()
-    return rss_items + mock_items
+    
+    all_items = rss_items + reddit_items + mock_items
+    print(f"Fetched {len(rss_items)} RSS items, {len(reddit_items)} Reddit posts, {len(mock_items)} mock items")
+    return all_items
 
 if __name__ == "__main__":
     # Test script locally
