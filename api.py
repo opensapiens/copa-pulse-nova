@@ -39,6 +39,16 @@ def fetch_and_process_data() -> List[Dict[str, Any]]:
     conn = get_db_connection()
     
     processed_data = []
+    aws_available = False
+    
+    # Test if AWS credentials are configured
+    try:
+        import boto3
+        import os
+        if os.getenv('AWS_ACCESS_KEY_ID') and 'YOUR_' not in os.getenv('AWS_ACCESS_KEY_ID', '').upper():
+            aws_available = True
+    except:
+        pass
     
     # 2. Pipeline processing for each item
     for item in raw_items:
@@ -60,21 +70,32 @@ def fetch_and_process_data() -> List[Dict[str, Any]]:
             })
             continue
 
-        # In a real background ingestion cron job, inference + geocoding would happen there.
-        # But for this demo, we run it live if cache misses.
-        llm_result = guesser.infer_location(item)
-        if not llm_result:
-            continue
+        # If AWS is available, use AI inference
+        if aws_available:
+            llm_result = guesser.infer_location(item)
+            if not llm_result:
+                continue
+                
+            location_string = llm_result.get("inferred_location", "")
+            weight = float(llm_result.get("confidence_score", 0.1))
+            sentiment = llm_result.get("sentiment", "neutral")
+            summary = llm_result.get("summary", item.get("title"))
             
-        location_string = llm_result.get("inferred_location", "")
-        weight = float(llm_result.get("confidence_score", 0.1))
-        sentiment = llm_result.get("sentiment", "neutral")
-        summary = llm_result.get("summary", item.get("title"))
-        
-        if not location_string or location_string.lower() == "unknown":
-            continue
+            if not location_string or location_string.lower() == "unknown":
+                continue
 
-        lat, lon = geocoder.get_coordinates(location_string)
+            lat, lon = geocoder.get_coordinates(location_string)
+        else:
+            # Fallback: Use mock data locations directly for demo purposes
+            # Extract location from mock items (they already have author_location set)
+            location_string = item.get('author_location', 'Unknown')
+            if location_string == 'Unknown':
+                continue
+                
+            lat, lon = geocoder.get_coordinates(location_string)
+            weight = 0.7  # Default weight for mock data
+            sentiment = "positive"
+            summary = item.get('title', 'Mock event happening in the area.')
         
         if lat is not None and lon is not None:
             # We skip the DB insert error handling for brevity, assume cache is hit mostly in demo
@@ -99,7 +120,23 @@ def fetch_and_process_data() -> List[Dict[str, Any]]:
 
     city_summaries = []
     for loc, items in grouped_data.items():
-        city_stats = guesser.summarize_city(loc, items)
+        # Try AI summarization if AWS is available, otherwise use fallback
+        if aws_available:
+            try:
+                city_stats = guesser.summarize_city(loc, items)
+            except:
+                city_stats = {
+                    "summary": f"Activity detected in {loc} with {len(items)} events.",
+                    "sentiment": "neutral",
+                    "key_events": [item['title'][:80] for item in items[:3]]
+                }
+        else:
+            # Fallback summary without AI
+            city_stats = {
+                "summary": f"Activity detected in {loc} with {len(items)} events. Configure AWS credentials for AI-powered insights.",
+                "sentiment": "positive",
+                "key_events": [item['title'][:80] for item in items[:3]]
+            }
         
         avg_lat = sum(i["lat"] for i in items) / len(items)
         avg_lon = sum(i["lon"] for i in items) / len(items)
